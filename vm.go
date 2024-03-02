@@ -335,8 +335,13 @@ type vm struct {
 	profTracker *profTracker
 }
 
+type DumpContext struct {
+	resultString string
+}
+
 type instruction interface {
 	exec(*vm)
+	dump(*DumpContext)
 }
 
 func intToValue(i int64) Value {
@@ -563,6 +568,8 @@ func (vm *vm) run() {
 	}
 	count := 0
 	interrupted := false
+
+	ctx := &DumpContext{}
 	for {
 		if count == 0 {
 			if atomic.LoadInt32(&globalProfiler.enabled) == 1 && !vm.runWithProfiler() {
@@ -579,8 +586,12 @@ func (vm *vm) run() {
 		if pc < 0 || pc >= len(vm.prg.code) {
 			break
 		}
+		vm.prg.code[pc].dump(ctx)
 		vm.prg.code[pc].exec(vm)
+		ctx.resultString += "\n"
 	}
+	fmt.Println("\ndump:")
+	fmt.Println(ctx.resultString)
 
 	if interrupted {
 		vm.interruptLock.Lock()
@@ -604,6 +615,7 @@ func (vm *vm) runWithProfiler() bool {
 		}()
 	}
 	interrupted := false
+
 	for {
 		if interrupted = atomic.LoadUint32(&vm.interrupted) != 0; interrupted {
 			return true
@@ -899,6 +911,10 @@ func (vm *vm) toCallee(v Value) *Object {
 
 type loadVal uint32
 
+func (l loadVal) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("loadVal %d", l)
+}
+
 func (l loadVal) exec(vm *vm) {
 	vm.push(vm.prg.values[l])
 	vm.pc++
@@ -907,6 +923,10 @@ func (l loadVal) exec(vm *vm) {
 type _loadUndef struct{}
 
 var loadUndef _loadUndef
+
+func (_loadUndef) dump(ctx *DumpContext) {
+	ctx.resultString += "loadUndef"
+}
 
 func (_loadUndef) exec(vm *vm) {
 	vm.push(_undefined)
@@ -917,6 +937,10 @@ type _loadNil struct{}
 
 var loadNil _loadNil
 
+func (_loadNil) dump(ctx *DumpContext) {
+	ctx.resultString += "loadNil"
+}
+
 func (_loadNil) exec(vm *vm) {
 	vm.push(nil)
 	vm.pc++
@@ -925,6 +949,10 @@ func (_loadNil) exec(vm *vm) {
 type _saveResult struct{}
 
 var saveResult _saveResult
+
+func (_saveResult) dump(ctx *DumpContext) {
+	ctx.resultString += "saveResult"
+}
 
 func (_saveResult) exec(vm *vm) {
 	vm.sp--
@@ -936,6 +964,10 @@ type _loadResult struct{}
 
 var loadResult _loadResult
 
+func (_loadResult) dump(ctx *DumpContext) {
+	ctx.resultString += "loadResult"
+}
+
 func (_loadResult) exec(vm *vm) {
 	vm.push(vm.result)
 	vm.pc++
@@ -944,6 +976,10 @@ func (_loadResult) exec(vm *vm) {
 type _clearResult struct{}
 
 var clearResult _clearResult
+
+func (_clearResult) dump(ctx *DumpContext) {
+	ctx.resultString += "clearResult"
+}
 
 func (_clearResult) exec(vm *vm) {
 	vm.result = _undefined
@@ -954,12 +990,20 @@ type _loadGlobalObject struct{}
 
 var loadGlobalObject _loadGlobalObject
 
+func (_loadGlobalObject) dump(ctx *DumpContext) {
+	ctx.resultString += "loadGlobalObject"
+}
+
 func (_loadGlobalObject) exec(vm *vm) {
 	vm.push(vm.r.globalObject)
 	vm.pc++
 }
 
 type loadStack int
+
+func (l loadStack) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("loadStack %d", l)
+}
 
 func (l loadStack) exec(vm *vm) {
 	// l > 0 -- var<l-1>
@@ -975,6 +1019,10 @@ func (l loadStack) exec(vm *vm) {
 
 type loadStack1 int
 
+func (l loadStack1) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("loadStack1 %d", l)
+}
+
 func (l loadStack1) exec(vm *vm) {
 	// args are in stash
 	// l > 0 -- var<l-1>
@@ -989,6 +1037,10 @@ func (l loadStack1) exec(vm *vm) {
 }
 
 type loadStackLex int
+
+func (l loadStackLex) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("loadStackLex %d", l)
+}
 
 func (l loadStackLex) exec(vm *vm) {
 	// l < 0 -- arg<-l-1>
@@ -1017,6 +1069,10 @@ func (l loadStackLex) exec(vm *vm) {
 
 type loadStack1Lex int
 
+func (l loadStack1Lex) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("loadStack1Lex %d", l)
+}
+
 func (l loadStack1Lex) exec(vm *vm) {
 	p := &vm.stack[vm.sb+int(l)]
 	if *p == nil {
@@ -1030,6 +1086,10 @@ func (l loadStack1Lex) exec(vm *vm) {
 type _loadCallee struct{}
 
 var loadCallee _loadCallee
+
+func (_loadCallee) dump(ctx *DumpContext) {
+	ctx.resultString += "loadCallee"
+}
 
 func (_loadCallee) exec(vm *vm) {
 	vm.push(vm.stack[vm.sb-1])
@@ -1111,11 +1171,19 @@ func (vm *vm) initStack1(s int) {
 
 type storeStack int
 
+func (s storeStack) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("storeStack %d", s)
+}
+
 func (s storeStack) exec(vm *vm) {
 	vm.storeStack(int(s))
 }
 
 type storeStack1 int
+
+func (s storeStack1) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("storeStack1 %d", s)
+}
 
 func (s storeStack1) exec(vm *vm) {
 	vm.storeStack1(int(s))
@@ -1123,11 +1191,19 @@ func (s storeStack1) exec(vm *vm) {
 
 type storeStackLex int
 
+func (s storeStackLex) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("storeStackLex %d", s)
+}
+
 func (s storeStackLex) exec(vm *vm) {
 	vm.storeStackLex(int(s))
 }
 
 type storeStack1Lex int
+
+func (s storeStack1Lex) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("storeStack1Lex %d", s)
+}
 
 func (s storeStack1Lex) exec(vm *vm) {
 	vm.storeStack1Lex(int(s))
@@ -1135,11 +1211,19 @@ func (s storeStack1Lex) exec(vm *vm) {
 
 type initStack int
 
+func (s initStack) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("initStack %d", s)
+}
+
 func (s initStack) exec(vm *vm) {
 	vm.initStack(int(s))
 }
 
 type initStackP int
+
+func (s initStackP) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("initStackP %d", s)
+}
 
 func (s initStackP) exec(vm *vm) {
 	vm.initStack(int(s))
@@ -1148,11 +1232,19 @@ func (s initStackP) exec(vm *vm) {
 
 type initStack1 int
 
+func (s initStack1) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("initStack1 %d", s)
+}
+
 func (s initStack1) exec(vm *vm) {
 	vm.initStack1(int(s))
 }
 
 type initStack1P int
+
+func (s initStack1P) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("initStack1P %d", s)
+}
 
 func (s initStack1P) exec(vm *vm) {
 	vm.initStack1(int(s))
@@ -1161,12 +1253,20 @@ func (s initStack1P) exec(vm *vm) {
 
 type storeStackP int
 
+func (s storeStackP) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("storeStackP %d", s)
+}
+
 func (s storeStackP) exec(vm *vm) {
 	vm.storeStack(int(s))
 	vm.sp--
 }
 
 type storeStack1P int
+
+func (s storeStack1P) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("storeStack1P %d", s)
+}
 
 func (s storeStack1P) exec(vm *vm) {
 	vm.storeStack1(int(s))
@@ -1175,12 +1275,20 @@ func (s storeStack1P) exec(vm *vm) {
 
 type storeStackLexP int
 
+func (s storeStackLexP) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("storeStackLexP %d", s)
+}
+
 func (s storeStackLexP) exec(vm *vm) {
 	vm.storeStackLex(int(s))
 	vm.sp--
 }
 
 type storeStack1LexP int
+
+func (s storeStack1LexP) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("storeStack1LexP %d", s)
+}
 
 func (s storeStack1LexP) exec(vm *vm) {
 	vm.storeStack1Lex(int(s))
@@ -1191,6 +1299,10 @@ type _toNumber struct{}
 
 var toNumber _toNumber
 
+func (s _toNumber) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("toNumber %d", s)
+}
+
 func (_toNumber) exec(vm *vm) {
 	vm.stack[vm.sp-1] = vm.stack[vm.sp-1].ToNumber()
 	vm.pc++
@@ -1199,6 +1311,10 @@ func (_toNumber) exec(vm *vm) {
 type _add struct{}
 
 var add _add
+
+func (s _add) dump(ctx *DumpContext) {
+	ctx.resultString += "add"
+}
 
 func (_add) exec(vm *vm) {
 	right := vm.stack[vm.sp-1]
@@ -1246,6 +1362,10 @@ type _sub struct{}
 
 var sub _sub
 
+func (_sub) dump(ctx *DumpContext) {
+	ctx.resultString += "sub"
+}
+
 func (_sub) exec(vm *vm) {
 	right := vm.stack[vm.sp-1]
 	left := vm.stack[vm.sp-2]
@@ -1269,6 +1389,10 @@ end:
 type _mul struct{}
 
 var mul _mul
+
+func (_mul) dump(ctx *DumpContext) {
+	ctx.resultString += "mul"
+}
 
 func (_mul) exec(vm *vm) {
 	left := vm.stack[vm.sp-2]
@@ -1304,6 +1428,10 @@ type _exp struct{}
 
 var exp _exp
 
+func (_exp) dump(ctx *DumpContext) {
+	ctx.resultString += "exp"
+}
+
 func (_exp) exec(vm *vm) {
 	vm.sp--
 	vm.stack[vm.sp-1] = pow(vm.stack[vm.sp-1], vm.stack[vm.sp])
@@ -1313,6 +1441,10 @@ func (_exp) exec(vm *vm) {
 type _div struct{}
 
 var div _div
+
+func (_div) dump(ctx *DumpContext) {
+	ctx.resultString += "div"
+}
 
 func (_div) exec(vm *vm) {
 	left := vm.stack[vm.sp-2].ToFloat()
@@ -1373,6 +1505,10 @@ type _mod struct{}
 
 var mod _mod
 
+func (_mod) dump(ctx *DumpContext) {
+	ctx.resultString += "mod"
+}
+
 func (_mod) exec(vm *vm) {
 	left := vm.stack[vm.sp-2]
 	right := vm.stack[vm.sp-1]
@@ -1406,6 +1542,10 @@ type _neg struct{}
 
 var neg _neg
 
+func (_neg) dump(ctx *DumpContext) {
+	ctx.resultString += "neg"
+}
+
 func (_neg) exec(vm *vm) {
 	operand := vm.stack[vm.sp-1]
 
@@ -1433,6 +1573,10 @@ type _plus struct{}
 
 var plus _plus
 
+func (_plus) dump(ctx *DumpContext) {
+	ctx.resultString += "plus"
+}
+
 func (_plus) exec(vm *vm) {
 	vm.stack[vm.sp-1] = vm.stack[vm.sp-1].ToNumber()
 	vm.pc++
@@ -1441,6 +1585,10 @@ func (_plus) exec(vm *vm) {
 type _inc struct{}
 
 var inc _inc
+
+func (_inc) dump(ctx *DumpContext) {
+	ctx.resultString += "inc"
+}
 
 func (_inc) exec(vm *vm) {
 	v := vm.stack[vm.sp-1]
@@ -1461,6 +1609,10 @@ type _dec struct{}
 
 var dec _dec
 
+func (_dec) dump(ctx *DumpContext) {
+	ctx.resultString += "dec"
+}
+
 func (_dec) exec(vm *vm) {
 	v := vm.stack[vm.sp-1]
 
@@ -1480,6 +1632,10 @@ type _and struct{}
 
 var and _and
 
+func (_and) dump(ctx *DumpContext) {
+	ctx.resultString += "and"
+}
+
 func (_and) exec(vm *vm) {
 	left := toInt32(vm.stack[vm.sp-2])
 	right := toInt32(vm.stack[vm.sp-1])
@@ -1491,6 +1647,10 @@ func (_and) exec(vm *vm) {
 type _or struct{}
 
 var or _or
+
+func (_or) dump(ctx *DumpContext) {
+	ctx.resultString += "or"
+}
 
 func (_or) exec(vm *vm) {
 	left := toInt32(vm.stack[vm.sp-2])
@@ -1504,6 +1664,10 @@ type _xor struct{}
 
 var xor _xor
 
+func (_xor) dump(ctx *DumpContext) {
+	ctx.resultString += "xor"
+}
+
 func (_xor) exec(vm *vm) {
 	left := toInt32(vm.stack[vm.sp-2])
 	right := toInt32(vm.stack[vm.sp-1])
@@ -1516,6 +1680,10 @@ type _bnot struct{}
 
 var bnot _bnot
 
+func (_bnot) dump(ctx *DumpContext) {
+	ctx.resultString += "bnot"
+}
+
 func (_bnot) exec(vm *vm) {
 	op := toInt32(vm.stack[vm.sp-1])
 	vm.stack[vm.sp-1] = intToValue(int64(^op))
@@ -1525,6 +1693,10 @@ func (_bnot) exec(vm *vm) {
 type _sal struct{}
 
 var sal _sal
+
+func (_sal) dump(ctx *DumpContext) {
+	ctx.resultString += "sal"
+}
 
 func (_sal) exec(vm *vm) {
 	left := toInt32(vm.stack[vm.sp-2])
@@ -1538,6 +1710,10 @@ type _sar struct{}
 
 var sar _sar
 
+func (_sar) dump(ctx *DumpContext) {
+	ctx.resultString += "sar"
+}
+
 func (_sar) exec(vm *vm) {
 	left := toInt32(vm.stack[vm.sp-2])
 	right := toUint32(vm.stack[vm.sp-1])
@@ -1550,6 +1726,10 @@ type _shr struct{}
 
 var shr _shr
 
+func (_shr) dump(ctx *DumpContext) {
+	ctx.resultString += "shr"
+}
+
 func (_shr) exec(vm *vm) {
 	left := toUint32(vm.stack[vm.sp-2])
 	right := toUint32(vm.stack[vm.sp-1])
@@ -1560,11 +1740,19 @@ func (_shr) exec(vm *vm) {
 
 type jump int32
 
+func (j jump) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("jump %d", j)
+}
+
 func (j jump) exec(vm *vm) {
 	vm.pc += int(j)
 }
 
 type _toPropertyKey struct{}
+
+func (_toPropertyKey) dump(ctx *DumpContext) {
+	ctx.resultString += "toPropertyKey"
+}
 
 func (_toPropertyKey) exec(vm *vm) {
 	p := vm.sp - 1
@@ -1573,6 +1761,10 @@ func (_toPropertyKey) exec(vm *vm) {
 }
 
 type _toString struct{}
+
+func (_toString) dump(ctx *DumpContext) {
+	ctx.resultString += "toString"
+}
 
 func (_toString) exec(vm *vm) {
 	p := vm.sp - 1
@@ -1583,6 +1775,10 @@ func (_toString) exec(vm *vm) {
 type _getElemRef struct{}
 
 var getElemRef _getElemRef
+
+func (_getElemRef) dump(ctx *DumpContext) {
+	ctx.resultString += "_getElemRef"
+}
 
 func (_getElemRef) exec(vm *vm) {
 	obj := vm.stack[vm.sp-2].ToObject(vm.r)
@@ -1598,6 +1794,10 @@ func (_getElemRef) exec(vm *vm) {
 type _getElemRefRecv struct{}
 
 var getElemRefRecv _getElemRefRecv
+
+func (_getElemRefRecv) dump(ctx *DumpContext) {
+	ctx.resultString += "getElemRefRecv"
+}
 
 func (_getElemRefRecv) exec(vm *vm) {
 	obj := vm.stack[vm.sp-1].ToObject(vm.r)
@@ -1615,6 +1815,10 @@ type _getElemRefStrict struct{}
 
 var getElemRefStrict _getElemRefStrict
 
+func (_getElemRefStrict) dump(ctx *DumpContext) {
+	ctx.resultString += "getElemRefStrict"
+}
+
 func (_getElemRefStrict) exec(vm *vm) {
 	obj := vm.stack[vm.sp-2].ToObject(vm.r)
 	propName := toPropertyKey(vm.stack[vm.sp-1])
@@ -1630,6 +1834,10 @@ func (_getElemRefStrict) exec(vm *vm) {
 type _getElemRefRecvStrict struct{}
 
 var getElemRefRecvStrict _getElemRefRecvStrict
+
+func (_getElemRefRecvStrict) dump(ctx *DumpContext) {
+	ctx.resultString += "getElemRefRecvStrict"
+}
 
 func (_getElemRefRecvStrict) exec(vm *vm) {
 	obj := vm.stack[vm.sp-1].ToObject(vm.r)
@@ -1648,6 +1856,10 @@ type _setElem struct{}
 
 var setElem _setElem
 
+func (_setElem) dump(ctx *DumpContext) {
+	ctx.resultString += "setElem"
+}
+
 func (_setElem) exec(vm *vm) {
 	obj := vm.stack[vm.sp-3].ToObject(vm.r)
 	propName := toPropertyKey(vm.stack[vm.sp-2])
@@ -1664,6 +1876,10 @@ type _setElem1 struct{}
 
 var setElem1 _setElem1
 
+func (_setElem1) dump(ctx *DumpContext) {
+	ctx.resultString += "setElem1"
+}
+
 func (_setElem1) exec(vm *vm) {
 	obj := vm.stack[vm.sp-3].ToObject(vm.r)
 	propName := vm.stack[vm.sp-2]
@@ -1678,6 +1894,10 @@ func (_setElem1) exec(vm *vm) {
 type _setElem1Named struct{}
 
 var setElem1Named _setElem1Named
+
+func (_setElem1Named) dump(ctx *DumpContext) {
+	ctx.resultString += "setElem1Named"
+}
 
 func (_setElem1Named) exec(vm *vm) {
 	receiver := vm.stack[vm.sp-3]
@@ -1696,6 +1916,10 @@ func (_setElem1Named) exec(vm *vm) {
 
 type defineMethod struct {
 	enumerable bool
+}
+
+func (s defineMethod) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("defineMethod %d", s.enumerable)
 }
 
 func (d *defineMethod) exec(vm *vm) {
@@ -1721,6 +1945,10 @@ type _setElemP struct{}
 
 var setElemP _setElemP
 
+func (_setElemP) dump(ctx *DumpContext) {
+	ctx.resultString += "setElemP"
+}
+
 func (_setElemP) exec(vm *vm) {
 	obj := vm.stack[vm.sp-3].ToObject(vm.r)
 	propName := toPropertyKey(vm.stack[vm.sp-2])
@@ -1735,6 +1963,10 @@ func (_setElemP) exec(vm *vm) {
 type _setElemStrict struct{}
 
 var setElemStrict _setElemStrict
+
+func (_setElemStrict) dump(ctx *DumpContext) {
+	ctx.resultString += "setElemStrict"
+}
 
 func (_setElemStrict) exec(vm *vm) {
 	propName := toPropertyKey(vm.stack[vm.sp-2])
@@ -1755,6 +1987,10 @@ func (_setElemStrict) exec(vm *vm) {
 type _setElemRecv struct{}
 
 var setElemRecv _setElemRecv
+
+func (_setElemRecv) dump(ctx *DumpContext) {
+	ctx.resultString += "setElemRecv"
+}
 
 func (_setElemRecv) exec(vm *vm) {
 	receiver := vm.stack[vm.sp-4]
@@ -1777,6 +2013,10 @@ type _setElemRecvStrict struct{}
 
 var setElemRecvStrict _setElemRecvStrict
 
+func (_setElemRecvStrict) dump(ctx *DumpContext) {
+	ctx.resultString += "setElemRecvStrict"
+}
+
 func (_setElemRecvStrict) exec(vm *vm) {
 	receiver := vm.stack[vm.sp-4]
 	propName := toPropertyKey(vm.stack[vm.sp-3])
@@ -1798,6 +2038,10 @@ type _setElemStrictP struct{}
 
 var setElemStrictP _setElemStrictP
 
+func (_setElemStrictP) dump(ctx *DumpContext) {
+	ctx.resultString += "setElemStrictP"
+}
+
 func (_setElemStrictP) exec(vm *vm) {
 	propName := toPropertyKey(vm.stack[vm.sp-2])
 	receiver := vm.stack[vm.sp-3]
@@ -1816,6 +2060,10 @@ func (_setElemStrictP) exec(vm *vm) {
 type _setElemRecvP struct{}
 
 var setElemRecvP _setElemRecvP
+
+func (_setElemRecvP) dump(ctx *DumpContext) {
+	ctx.resultString += "setElemRecvP"
+}
 
 func (_setElemRecvP) exec(vm *vm) {
 	receiver := vm.stack[vm.sp-4]
@@ -1837,6 +2085,10 @@ type _setElemRecvStrictP struct{}
 
 var setElemRecvStrictP _setElemRecvStrictP
 
+func (_setElemRecvStrictP) dump(ctx *DumpContext) {
+	ctx.resultString += "setElemRecvStrictP"
+}
+
 func (_setElemRecvStrictP) exec(vm *vm) {
 	receiver := vm.stack[vm.sp-4]
 	propName := toPropertyKey(vm.stack[vm.sp-3])
@@ -1857,6 +2109,10 @@ type _deleteElem struct{}
 
 var deleteElem _deleteElem
 
+func (_deleteElem) dump(ctx *DumpContext) {
+	ctx.resultString += "deleteElem"
+}
+
 func (_deleteElem) exec(vm *vm) {
 	obj := vm.stack[vm.sp-2].ToObject(vm.r)
 	propName := toPropertyKey(vm.stack[vm.sp-1])
@@ -1873,6 +2129,10 @@ type _deleteElemStrict struct{}
 
 var deleteElemStrict _deleteElemStrict
 
+func (_deleteElemStrict) dump(ctx *DumpContext) {
+	ctx.resultString += "deleteElemStrict"
+}
+
 func (_deleteElemStrict) exec(vm *vm) {
 	obj := vm.stack[vm.sp-2].ToObject(vm.r)
 	propName := toPropertyKey(vm.stack[vm.sp-1])
@@ -1883,6 +2143,10 @@ func (_deleteElemStrict) exec(vm *vm) {
 }
 
 type deleteProp unistring.String
+
+func (d deleteProp) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("deleteProp %s", d)
+}
 
 func (d deleteProp) exec(vm *vm) {
 	obj := vm.stack[vm.sp-1].ToObject(vm.r)
@@ -1896,6 +2160,10 @@ func (d deleteProp) exec(vm *vm) {
 
 type deletePropStrict unistring.String
 
+func (d deletePropStrict) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("deletePropStrict %s", d)
+}
+
 func (d deletePropStrict) exec(vm *vm) {
 	obj := vm.stack[vm.sp-1].ToObject(vm.r)
 	obj.self.deleteStr(unistring.String(d), true)
@@ -1904,6 +2172,10 @@ func (d deletePropStrict) exec(vm *vm) {
 }
 
 type getPropRef unistring.String
+
+func (p getPropRef) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("getPropRef %s", p)
+}
 
 func (p getPropRef) exec(vm *vm) {
 	vm.refStack = append(vm.refStack, &objRef{
@@ -1915,6 +2187,10 @@ func (p getPropRef) exec(vm *vm) {
 }
 
 type getPropRefRecv unistring.String
+
+func (p getPropRefRecv) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("getPropRefRecv %s", p)
+}
 
 func (p getPropRefRecv) exec(vm *vm) {
 	vm.refStack = append(vm.refStack, &objRef{
@@ -1928,6 +2204,10 @@ func (p getPropRefRecv) exec(vm *vm) {
 
 type getPropRefStrict unistring.String
 
+func (p getPropRefStrict) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("getPropRefStrict %s", p)
+}
+
 func (p getPropRefStrict) exec(vm *vm) {
 	vm.refStack = append(vm.refStack, &objRef{
 		base:   vm.stack[vm.sp-1].ToObject(vm.r),
@@ -1939,6 +2219,10 @@ func (p getPropRefStrict) exec(vm *vm) {
 }
 
 type getPropRefRecvStrict unistring.String
+
+func (p getPropRefRecvStrict) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("getPropRefRecvStrict %s", p)
+}
 
 func (p getPropRefRecvStrict) exec(vm *vm) {
 	vm.refStack = append(vm.refStack, &objRef{
@@ -1953,6 +2237,10 @@ func (p getPropRefRecvStrict) exec(vm *vm) {
 
 type setProp unistring.String
 
+func (p setProp) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("setProp %s", p)
+}
+
 func (p setProp) exec(vm *vm) {
 	val := vm.stack[vm.sp-1]
 	vm.stack[vm.sp-2].ToObject(vm.r).self.setOwnStr(unistring.String(p), val, false)
@@ -1963,6 +2251,10 @@ func (p setProp) exec(vm *vm) {
 
 type setPropP unistring.String
 
+func (p setPropP) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("setPropP %s", p)
+}
+
 func (p setPropP) exec(vm *vm) {
 	val := vm.stack[vm.sp-1]
 	vm.stack[vm.sp-2].ToObject(vm.r).self.setOwnStr(unistring.String(p), val, false)
@@ -1971,6 +2263,10 @@ func (p setPropP) exec(vm *vm) {
 }
 
 type setPropStrict unistring.String
+
+func (p setPropStrict) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("setPropStrict %s", p)
+}
 
 func (p setPropStrict) exec(vm *vm) {
 	receiver := vm.stack[vm.sp-2]
@@ -1989,6 +2285,10 @@ func (p setPropStrict) exec(vm *vm) {
 }
 
 type setPropRecv unistring.String
+
+func (p setPropRecv) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("setPropRecv %s", p)
+}
 
 func (p setPropRecv) exec(vm *vm) {
 	receiver := vm.stack[vm.sp-3]
@@ -2009,6 +2309,10 @@ func (p setPropRecv) exec(vm *vm) {
 
 type setPropRecvStrict unistring.String
 
+func (p setPropRecvStrict) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("setPropRecvStrict %s", p)
+}
+
 func (p setPropRecvStrict) exec(vm *vm) {
 	receiver := vm.stack[vm.sp-3]
 	o := vm.stack[vm.sp-2]
@@ -2028,6 +2332,10 @@ func (p setPropRecvStrict) exec(vm *vm) {
 
 type setPropRecvP unistring.String
 
+func (p setPropRecvP) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("setPropRecvP %s", p)
+}
+
 func (p setPropRecvP) exec(vm *vm) {
 	receiver := vm.stack[vm.sp-3]
 	o := vm.stack[vm.sp-2]
@@ -2045,6 +2353,10 @@ func (p setPropRecvP) exec(vm *vm) {
 }
 
 type setPropRecvStrictP unistring.String
+
+func (p setPropRecvStrictP) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("setPropRecvStrictP %s", p)
+}
 
 func (p setPropRecvStrictP) exec(vm *vm) {
 	receiver := vm.stack[vm.sp-3]
@@ -2064,6 +2376,10 @@ func (p setPropRecvStrictP) exec(vm *vm) {
 
 type setPropStrictP unistring.String
 
+func (p setPropStrictP) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("setPropStrictP %s", p)
+}
+
 func (p setPropStrictP) exec(vm *vm) {
 	receiver := vm.stack[vm.sp-2]
 	val := vm.stack[vm.sp-1]
@@ -2081,6 +2397,10 @@ func (p setPropStrictP) exec(vm *vm) {
 
 type putProp unistring.String
 
+func (p putProp) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("putProp %s", p)
+}
+
 func (p putProp) exec(vm *vm) {
 	vm.r.toObject(vm.stack[vm.sp-2]).self._putProp(unistring.String(p), vm.stack[vm.sp-1], true, true, true)
 
@@ -2090,6 +2410,10 @@ func (p putProp) exec(vm *vm) {
 
 // used in class declarations instead of putProp because DefineProperty must be observable by Proxy
 type definePropKeyed unistring.String
+
+func (p definePropKeyed) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("definePropKeyed %s", p)
+}
 
 func (p definePropKeyed) exec(vm *vm) {
 	vm.r.toObject(vm.stack[vm.sp-2]).self.defineOwnPropertyStr(unistring.String(p), PropertyDescriptor{
@@ -2104,6 +2428,10 @@ func (p definePropKeyed) exec(vm *vm) {
 }
 
 type defineProp struct{}
+
+func (defineProp) dump(ctx *DumpContext) {
+	ctx.resultString += "defineProp"
+}
 
 func (defineProp) exec(vm *vm) {
 	vm.r.toObject(vm.stack[vm.sp-3]).defineOwnProperty(vm.stack[vm.sp-2], PropertyDescriptor{
@@ -2120,6 +2448,10 @@ func (defineProp) exec(vm *vm) {
 type defineMethodKeyed struct {
 	key        unistring.String
 	enumerable bool
+}
+
+func (d *defineMethodKeyed) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("defineMethodKeyed %s %d", d.key, d.enumerable)
 }
 
 func (d *defineMethodKeyed) exec(vm *vm) {
@@ -2141,6 +2473,10 @@ type _setProto struct{}
 
 var setProto _setProto
 
+func (_setProto) dump(ctx *DumpContext) {
+	ctx.resultString += "setProto"
+}
+
 func (_setProto) exec(vm *vm) {
 	vm.r.setObjectProto(vm.stack[vm.sp-2], vm.stack[vm.sp-1])
 
@@ -2151,6 +2487,10 @@ func (_setProto) exec(vm *vm) {
 type defineGetterKeyed struct {
 	key        unistring.String
 	enumerable bool
+}
+
+func (s *defineGetterKeyed) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("defineGetterKeyed %s %d", s.key, s.enumerable)
 }
 
 func (s *defineGetterKeyed) exec(vm *vm) {
@@ -2178,6 +2518,10 @@ type defineSetterKeyed struct {
 	enumerable bool
 }
 
+func (s *defineSetterKeyed) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("defineSetterKeyed %s %d", s.key, s.enumerable)
+}
+
 func (s *defineSetterKeyed) exec(vm *vm) {
 	obj := vm.r.toObject(vm.stack[vm.sp-2])
 	val := vm.stack[vm.sp-1]
@@ -2201,6 +2545,10 @@ func (s *defineSetterKeyed) exec(vm *vm) {
 
 type defineGetter struct {
 	enumerable bool
+}
+
+func (s *defineGetter) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("defineGetter %d", s.enumerable)
 }
 
 func (s *defineGetter) exec(vm *vm) {
@@ -2229,6 +2577,10 @@ type defineSetter struct {
 	enumerable bool
 }
 
+func (s *defineSetter) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("defineSetter %d", s.enumerable)
+}
+
 func (s *defineSetter) exec(vm *vm) {
 	obj := vm.r.toObject(vm.stack[vm.sp-3])
 	propName := vm.stack[vm.sp-2]
@@ -2254,6 +2606,10 @@ func (s *defineSetter) exec(vm *vm) {
 
 type getProp unistring.String
 
+func (g getProp) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("getProp %s", g)
+}
+
 func (g getProp) exec(vm *vm) {
 	v := vm.stack[vm.sp-1]
 	obj := v.baseObject(vm.r)
@@ -2267,6 +2623,10 @@ func (g getProp) exec(vm *vm) {
 }
 
 type getPropRecv unistring.String
+
+func (g getPropRecv) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("getPropRecv %s", g)
+}
 
 func (g getPropRecv) exec(vm *vm) {
 	recv := vm.stack[vm.sp-2]
@@ -2282,6 +2642,10 @@ func (g getPropRecv) exec(vm *vm) {
 }
 
 type getPropRecvCallee unistring.String
+
+func (g getPropRecvCallee) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("getPropRecvCallee %s", g)
+}
 
 func (g getPropRecvCallee) exec(vm *vm) {
 	recv := vm.stack[vm.sp-2]
@@ -2304,6 +2668,10 @@ func (g getPropRecvCallee) exec(vm *vm) {
 
 type getPropCallee unistring.String
 
+func (g getPropCallee) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("getPropCallee %s", g)
+}
+
 func (g getPropCallee) exec(vm *vm) {
 	v := vm.stack[vm.sp-1]
 	obj := v.baseObject(vm.r)
@@ -2325,6 +2693,10 @@ type _getElem struct{}
 
 var getElem _getElem
 
+func (_getElem) dump(ctx *DumpContext) {
+	ctx.resultString += "getElem"
+}
+
 func (_getElem) exec(vm *vm) {
 	v := vm.stack[vm.sp-2]
 	obj := v.baseObject(vm.r)
@@ -2343,6 +2715,10 @@ func (_getElem) exec(vm *vm) {
 type _getElemRecv struct{}
 
 var getElemRecv _getElemRecv
+
+func (_getElemRecv) dump(ctx *DumpContext) {
+	ctx.resultString += "getElemRecv"
+}
 
 func (_getElemRecv) exec(vm *vm) {
 	recv := vm.stack[vm.sp-3]
@@ -2364,6 +2740,10 @@ type _getKey struct{}
 
 var getKey _getKey
 
+func (_getKey) dump(ctx *DumpContext) {
+	ctx.resultString += "getKey"
+}
+
 func (_getKey) exec(vm *vm) {
 	v := vm.stack[vm.sp-2]
 	obj := v.baseObject(vm.r)
@@ -2382,6 +2762,10 @@ func (_getKey) exec(vm *vm) {
 type _getElemCallee struct{}
 
 var getElemCallee _getElemCallee
+
+func (_getElemCallee) dump(ctx *DumpContext) {
+	ctx.resultString += "getElemCallee"
+}
 
 func (_getElemCallee) exec(vm *vm) {
 	v := vm.stack[vm.sp-2]
@@ -2404,6 +2788,10 @@ func (_getElemCallee) exec(vm *vm) {
 type _getElemRecvCallee struct{}
 
 var getElemRecvCallee _getElemRecvCallee
+
+func (_getElemRecvCallee) dump(ctx *DumpContext) {
+	ctx.resultString += "getElemRecvCallee"
+}
 
 func (_getElemRecvCallee) exec(vm *vm) {
 	recv := vm.stack[vm.sp-3]
@@ -2429,12 +2817,20 @@ type _dup struct{}
 
 var dup _dup
 
+func (_dup) dump(ctx *DumpContext) {
+	ctx.resultString += "dup"
+}
+
 func (_dup) exec(vm *vm) {
 	vm.push(vm.stack[vm.sp-1])
 	vm.pc++
 }
 
 type dupN uint32
+
+func (d dupN) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("dupN %d", d)
+}
 
 func (d dupN) exec(vm *vm) {
 	vm.push(vm.stack[vm.sp-1-int(d)])
@@ -2443,12 +2839,20 @@ func (d dupN) exec(vm *vm) {
 
 type rdupN uint32
 
+func (d rdupN) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("rdupN %d", d)
+}
+
 func (d rdupN) exec(vm *vm) {
 	vm.stack[vm.sp-1-int(d)] = vm.stack[vm.sp-1]
 	vm.pc++
 }
 
 type dupLast uint32
+
+func (d dupLast) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("dupLast %d", d)
+}
 
 func (d dupLast) exec(vm *vm) {
 	e := vm.sp + int(d)
@@ -2462,12 +2866,20 @@ type _newObject struct{}
 
 var newObject _newObject
 
+func (_newObject) dump(ctx *DumpContext) {
+	ctx.resultString += "newObject"
+}
+
 func (_newObject) exec(vm *vm) {
 	vm.push(vm.r.NewObject())
 	vm.pc++
 }
 
 type newArray uint32
+
+func (l newArray) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("newArray %d", l)
+}
 
 func (l newArray) exec(vm *vm) {
 	values := make([]Value, 0, l)
@@ -2478,6 +2890,10 @@ func (l newArray) exec(vm *vm) {
 type _pushArrayItem struct{}
 
 var pushArrayItem _pushArrayItem
+
+func (_pushArrayItem) dump(ctx *DumpContext) {
+	ctx.resultString += "pushArrayItem"
+}
 
 func (_pushArrayItem) exec(vm *vm) {
 	arr := vm.stack[vm.sp-2].(*Object).self.(*arrayObject)
@@ -2500,6 +2916,10 @@ type _pushArraySpread struct{}
 
 var pushArraySpread _pushArraySpread
 
+func (_pushArraySpread) dump(ctx *DumpContext) {
+	ctx.resultString += "pushArraySpread"
+}
+
 func (_pushArraySpread) exec(vm *vm) {
 	arr := vm.stack[vm.sp-2].(*Object).self.(*arrayObject)
 	vm.r.getIterator(vm.stack[vm.sp-1], nil).iterate(func(val Value) {
@@ -2520,6 +2940,10 @@ type _pushSpread struct{}
 
 var pushSpread _pushSpread
 
+func (_pushSpread) dump(ctx *DumpContext) {
+	ctx.resultString += "pushSpread"
+}
+
 func (_pushSpread) exec(vm *vm) {
 	vm.sp--
 	obj := vm.stack[vm.sp]
@@ -2532,6 +2956,10 @@ func (_pushSpread) exec(vm *vm) {
 type _newArrayFromIter struct{}
 
 var newArrayFromIter _newArrayFromIter
+
+func (_newArrayFromIter) dump(ctx *DumpContext) {
+	ctx.resultString += "newArrayFromIter"
+}
 
 func (_newArrayFromIter) exec(vm *vm) {
 	var values []Value
@@ -2551,6 +2979,10 @@ func (_newArrayFromIter) exec(vm *vm) {
 type newRegexp struct {
 	pattern *regexpPattern
 	src     String
+}
+
+func (n *newRegexp) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("newRegexp %s %s", n.pattern, n.src)
 }
 
 func (n *newRegexp) exec(vm *vm) {
@@ -2588,11 +3020,19 @@ func (vm *vm) initLocal(s int) {
 
 type storeStash uint32
 
+func (s storeStash) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("storeStash %d", s)
+}
+
 func (s storeStash) exec(vm *vm) {
 	vm.initLocal(int(s))
 }
 
 type storeStashP uint32
+
+func (s storeStashP) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("storeStashP %d", s)
+}
 
 func (s storeStashP) exec(vm *vm) {
 	vm.initLocal(int(s))
@@ -2601,11 +3041,19 @@ func (s storeStashP) exec(vm *vm) {
 
 type storeStashLex uint32
 
+func (s storeStashLex) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("storeStashLex %d", s)
+}
+
 func (s storeStashLex) exec(vm *vm) {
 	vm.setLocalLex(int(s))
 }
 
 type storeStashLexP uint32
+
+func (s storeStashLexP) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("storeStashLexP %d", s)
+}
 
 func (s storeStashLexP) exec(vm *vm) {
 	vm.setLocalLex(int(s))
@@ -2614,11 +3062,19 @@ func (s storeStashLexP) exec(vm *vm) {
 
 type initStash uint32
 
+func (s initStash) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("initStash %d", s)
+}
+
 func (s initStash) exec(vm *vm) {
 	vm.initLocal(int(s))
 }
 
 type initStashP uint32
+
+func (s initStashP) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("initStashP %d", s)
+}
 
 func (s initStashP) exec(vm *vm) {
 	vm.initLocal(int(s))
@@ -2626,6 +3082,10 @@ func (s initStashP) exec(vm *vm) {
 }
 
 type initGlobalP unistring.String
+
+func (s initGlobalP) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("initGlobalP %s", s)
+}
 
 func (s initGlobalP) exec(vm *vm) {
 	vm.sp--
@@ -2635,12 +3095,20 @@ func (s initGlobalP) exec(vm *vm) {
 
 type initGlobal unistring.String
 
+func (s initGlobal) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("initGlobal %s", s)
+}
+
 func (s initGlobal) exec(vm *vm) {
 	vm.r.global.stash.initByName(unistring.String(s), vm.stack[vm.sp])
 	vm.pc++
 }
 
 type resolveVar1 unistring.String
+
+func (s resolveVar1) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("resolveVar1 %s", s)
+}
 
 func (s resolveVar1) exec(vm *vm) {
 	name := unistring.String(s)
@@ -2664,6 +3132,10 @@ end:
 }
 
 type deleteVar unistring.String
+
+func (d deleteVar) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("deleteVar %s", d)
+}
 
 func (d deleteVar) exec(vm *vm) {
 	name := unistring.String(d)
@@ -2701,6 +3173,10 @@ end:
 
 type deleteGlobal unistring.String
 
+func (d deleteGlobal) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("deleteGlobal %s", d)
+}
+
 func (d deleteGlobal) exec(vm *vm) {
 	name := unistring.String(d)
 	var ret bool
@@ -2721,6 +3197,10 @@ func (d deleteGlobal) exec(vm *vm) {
 }
 
 type resolveVar1Strict unistring.String
+
+func (s resolveVar1Strict) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("resolveVar1Strict %s", s)
+}
 
 func (s resolveVar1Strict) exec(vm *vm) {
 	name := unistring.String(s)
@@ -2754,12 +3234,20 @@ end:
 
 type setGlobal unistring.String
 
+func (s setGlobal) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("setGlobal %s", s)
+}
+
 func (s setGlobal) exec(vm *vm) {
 	vm.r.setGlobal(unistring.String(s), vm.peek(), false)
 	vm.pc++
 }
 
 type setGlobalStrict unistring.String
+
+func (s setGlobalStrict) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("setGlobalStrict %s", s)
+}
 
 func (s setGlobalStrict) exec(vm *vm) {
 	vm.r.setGlobal(unistring.String(s), vm.peek(), true)
@@ -2768,6 +3256,10 @@ func (s setGlobalStrict) exec(vm *vm) {
 
 // Load a var from stash
 type loadStash uint32
+
+func (g loadStash) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("loadStash %d", g)
+}
 
 func (g loadStash) exec(vm *vm) {
 	level := int(g >> 24)
@@ -2783,6 +3275,10 @@ func (g loadStash) exec(vm *vm) {
 
 // Load a lexical binding from stash
 type loadStashLex uint32
+
+func (g loadStashLex) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("loadStashLex %d", g)
+}
 
 func (g loadStashLex) exec(vm *vm) {
 	level := int(g >> 24)
@@ -2807,6 +3303,10 @@ type loadMixed struct {
 	name   unistring.String
 	idx    uint32
 	callee bool
+}
+
+func (g *loadMixed) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("loadMixed %s %d %t", g.name, g.idx, g.callee)
 }
 
 func (g *loadMixed) exec(vm *vm) {
@@ -2841,6 +3341,10 @@ end:
 // scan dynamic stashes up to the given level (encoded as 8 most significant bits of idx), if not found
 // return the indexed lexical binding value from stash
 type loadMixedLex loadMixed
+
+func (g *loadMixedLex) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("loadMixedLex %s %d %t", g.name, g.idx, g.callee)
+}
 
 func (g *loadMixedLex) exec(vm *vm) {
 	level := int(g.idx >> 24)
@@ -2888,6 +3392,10 @@ type loadMixedStack struct {
 // same as loadMixedStack, but the args have been moved to stash (therefore stack layout is different)
 type loadMixedStack1 loadMixedStack
 
+func (g *loadMixedStack) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("loadMixedStack %s %d %d %t", g.name, g.idx, g.level, g.callee)
+}
+
 func (g *loadMixedStack) exec(vm *vm) {
 	stash := vm.stash
 	name := g.name
@@ -2913,6 +3421,10 @@ func (g *loadMixedStack) exec(vm *vm) {
 	return
 end:
 	vm.pc++
+}
+
+func (g *loadMixedStack1) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("loadMixedStack1 %s %d %d %t", g.name, g.idx, g.level, g.callee)
 }
 
 func (g *loadMixedStack1) exec(vm *vm) {
@@ -2947,6 +3459,10 @@ type loadMixedStackLex loadMixedStack
 // same as loadMixedStackLex but when the arguments have been moved into stash
 type loadMixedStack1Lex loadMixedStack
 
+func (g *loadMixedStackLex) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("loadMixedStackLex %s %d %d %t", g.name, g.idx, g.level, g.callee)
+}
+
 func (g *loadMixedStackLex) exec(vm *vm) {
 	stash := vm.stash
 	name := g.name
@@ -2972,6 +3488,10 @@ func (g *loadMixedStackLex) exec(vm *vm) {
 	return
 end:
 	vm.pc++
+}
+
+func (g *loadMixedStack1Lex) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("loadMixedStack1Lex %s %d %d %t", g.name, g.idx, g.level, g.callee)
 }
 
 func (g *loadMixedStack1Lex) exec(vm *vm) {
@@ -3039,6 +3559,10 @@ func newStashRef(typ varType, name unistring.String, v *[]Value, idx int) ref {
 	panic("unsupported var type")
 }
 
+func (r *resolveMixed) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("resolveMixed %s %d %d %t", r.name, r.idx, r.typ, r.strict)
+}
+
 func (r *resolveMixed) exec(vm *vm) {
 	level := int(r.idx >> 24)
 	idx := r.idx & 0x00FFFFFF
@@ -3077,6 +3601,10 @@ type resolveMixedStack struct {
 
 type resolveMixedStack1 resolveMixedStack
 
+func (r *resolveMixedStack) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("resolveMixedStack %s %d %d %d %t", r.name, r.idx, r.typ, r.level, r.strict)
+}
+
 func (r *resolveMixedStack) exec(vm *vm) {
 	level := int(r.level)
 	stash := vm.stash
@@ -3103,6 +3631,10 @@ end:
 	vm.pc++
 }
 
+func (r *resolveMixedStack1) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("resolveMixedStack1 %s %d %d %d %t", r.name, r.idx, r.typ, r.level, r.strict)
+}
+
 func (r *resolveMixedStack1) exec(vm *vm) {
 	level := int(r.level)
 	stash := vm.stash
@@ -3126,6 +3658,10 @@ type _getValue struct{}
 
 var getValue _getValue
 
+func (_getValue) dump(ctx *DumpContext) {
+	ctx.resultString += "getValue"
+}
+
 func (_getValue) exec(vm *vm) {
 	ref := vm.refStack[len(vm.refStack)-1]
 	if v := ref.get(); v != nil {
@@ -3141,6 +3677,10 @@ type _putValue struct{}
 
 var putValue _putValue
 
+func (_putValue) dump(ctx *DumpContext) {
+	ctx.resultString += "putValue"
+}
+
 func (_putValue) exec(vm *vm) {
 	l := len(vm.refStack) - 1
 	ref := vm.refStack[l]
@@ -3153,6 +3693,10 @@ func (_putValue) exec(vm *vm) {
 type _putValueP struct{}
 
 var putValueP _putValueP
+
+func (_putValueP) dump(ctx *DumpContext) {
+	ctx.resultString += "putValueP"
+}
 
 func (_putValueP) exec(vm *vm) {
 	l := len(vm.refStack) - 1
@@ -3168,6 +3712,10 @@ type _initValueP struct{}
 
 var initValueP _initValueP
 
+func (_initValueP) dump(ctx *DumpContext) {
+	ctx.resultString += "initValueP"
+}
+
 func (_initValueP) exec(vm *vm) {
 	l := len(vm.refStack) - 1
 	ref := vm.refStack[l]
@@ -3179,6 +3727,10 @@ func (_initValueP) exec(vm *vm) {
 }
 
 type loadDynamic unistring.String
+
+func (n loadDynamic) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("loadDynamic %s", n)
+}
 
 func (n loadDynamic) exec(vm *vm) {
 	name := unistring.String(n)
@@ -3202,6 +3754,10 @@ func (n loadDynamic) exec(vm *vm) {
 
 type loadDynamicRef unistring.String
 
+func (n loadDynamicRef) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("loadDynamicRef %s", n)
+}
+
 func (n loadDynamicRef) exec(vm *vm) {
 	name := unistring.String(n)
 	var val Value
@@ -3222,6 +3778,10 @@ func (n loadDynamicRef) exec(vm *vm) {
 }
 
 type loadDynamicCallee unistring.String
+
+func (n loadDynamicCallee) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("loadDynamicCallee %s", n)
+}
 
 func (n loadDynamicCallee) exec(vm *vm) {
 	name := unistring.String(n)
@@ -3253,6 +3813,10 @@ type _pop struct{}
 
 var pop _pop
 
+func (_pop) dump(ctx *DumpContext) {
+	ctx.resultString += "pop"
+}
+
 func (_pop) exec(vm *vm) {
 	vm.sp--
 	vm.pc++
@@ -3281,11 +3845,19 @@ func (vm *vm) callEval(n int, strict bool) {
 
 type callEval uint32
 
+func (numargs callEval) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("callEval %d", numargs)
+}
+
 func (numargs callEval) exec(vm *vm) {
 	vm.callEval(int(numargs), false)
 }
 
 type callEvalStrict uint32
+
+func (numargs callEvalStrict) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("callEvalStrict %d", numargs)
+}
 
 func (numargs callEvalStrict) exec(vm *vm) {
 	vm.callEval(int(numargs), true)
@@ -3295,6 +3867,10 @@ type _callEvalVariadic struct{}
 
 var callEvalVariadic _callEvalVariadic
 
+func (_callEvalVariadic) dump(ctx *DumpContext) {
+	ctx.resultString += "callEvalVariadic"
+}
+
 func (_callEvalVariadic) exec(vm *vm) {
 	vm.callEval(vm.countVariadicArgs()-2, false)
 }
@@ -3303,6 +3879,10 @@ type _callEvalVariadicStrict struct{}
 
 var callEvalVariadicStrict _callEvalVariadicStrict
 
+func (_callEvalVariadicStrict) dump(ctx *DumpContext) {
+	ctx.resultString += "callEvalVariadicStrict"
+}
+
 func (_callEvalVariadicStrict) exec(vm *vm) {
 	vm.callEval(vm.countVariadicArgs()-2, true)
 }
@@ -3310,6 +3890,10 @@ func (_callEvalVariadicStrict) exec(vm *vm) {
 type _boxThis struct{}
 
 var boxThis _boxThis
+
+func (_boxThis) dump(ctx *DumpContext) {
+	ctx.resultString += "boxThis"
+}
 
 func (_boxThis) exec(vm *vm) {
 	v := vm.stack[vm.sb]
@@ -3327,6 +3911,10 @@ type _startVariadic struct{}
 
 var startVariadic _startVariadic
 
+func (_startVariadic) dump(ctx *DumpContext) {
+	ctx.resultString += "startVariadic"
+}
+
 func (_startVariadic) exec(vm *vm) {
 	vm.push(variadicMarker)
 	vm.pc++
@@ -3335,6 +3923,10 @@ func (_startVariadic) exec(vm *vm) {
 type _callVariadic struct{}
 
 var callVariadic _callVariadic
+
+func (_callVariadic) dump(ctx *DumpContext) {
+	ctx.resultString += "callVariadic"
+}
 
 func (vm *vm) countVariadicArgs() int {
 	count := 0
@@ -3355,6 +3947,10 @@ type _endVariadic struct{}
 
 var endVariadic _endVariadic
 
+func (_endVariadic) dump(ctx *DumpContext) {
+	ctx.resultString += "endVariadic"
+}
+
 func (_endVariadic) exec(vm *vm) {
 	vm.sp--
 	vm.stack[vm.sp-1] = vm.stack[vm.sp]
@@ -3362,6 +3958,10 @@ func (_endVariadic) exec(vm *vm) {
 }
 
 type call uint32
+
+func (numargs call) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("call %d", numargs)
+}
 
 func (numargs call) exec(vm *vm) {
 	// this
@@ -3390,6 +3990,10 @@ type enterBlock struct {
 	stackSize uint32
 }
 
+func (e *enterBlock) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("enterBlock %d %d", e.stashSize, e.stackSize)
+}
+
 func (e *enterBlock) exec(vm *vm) {
 	if e.stashSize > 0 {
 		vm.newStash()
@@ -3412,6 +4016,10 @@ type enterCatchBlock struct {
 	names     map[unistring.String]uint32
 	stashSize uint32
 	stackSize uint32
+}
+
+func (e *enterCatchBlock) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("enterCatchBlock %d %d", e.stashSize, e.stackSize)
 }
 
 func (e *enterCatchBlock) exec(vm *vm) {
@@ -3437,6 +4045,10 @@ type leaveBlock struct {
 	popStash  bool
 }
 
+func (l *leaveBlock) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("leaveBlock %d %t", l.stackSize, l.popStash)
+}
+
 func (l *leaveBlock) exec(vm *vm) {
 	if l.popStash {
 		vm.stash = vm.stash.outer
@@ -3455,6 +4067,10 @@ type enterFunc struct {
 	funcType    funcType
 	argsToStash bool
 	extensible  bool
+}
+
+func (e *enterFunc) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("enterFunc %d %d %d %t %t", e.stashSize, e.stackSize, e.numArgs, e.argsToStash, e.extensible)
 }
 
 func (e *enterFunc) exec(vm *vm) {
@@ -3540,6 +4156,10 @@ type enterFunc1 struct {
 	extensible bool
 }
 
+func (e *enterFunc1) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("enterFunc1 %d %d %d %d %t", e.stashSize, e.numArgs, e.argsToCopy, e.funcType, e.extensible)
+}
+
 func (e *enterFunc1) exec(vm *vm) {
 	sp := vm.sp
 	vm.sb = sp - vm.args - 1
@@ -3588,6 +4208,10 @@ type enterFuncBody struct {
 	adjustStack bool
 }
 
+func (e *enterFuncBody) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("enterFuncBody %d %d %d %t %t", e.stashSize, e.stackSize, e.funcType, e.extensible, e.adjustStack)
+}
+
 func (e *enterFuncBody) exec(vm *vm) {
 	if e.stashSize > 0 || e.extensible {
 		vm.newStash()
@@ -3626,6 +4250,10 @@ type _ret struct{}
 
 var ret _ret
 
+func (_ret) dump(ctx *DumpContext) {
+	ctx.resultString += "ret"
+}
+
 func (_ret) exec(vm *vm) {
 	// callee -3
 	// this -2 <- sb
@@ -3639,6 +4267,10 @@ func (_ret) exec(vm *vm) {
 
 type cret uint32
 
+func (c cret) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("cret %d", c)
+}
+
 func (c cret) exec(vm *vm) {
 	vm.stack[vm.sb] = *vm.getStashPtr(uint32(c))
 	ret.exec(vm)
@@ -3647,6 +4279,10 @@ func (c cret) exec(vm *vm) {
 type enterFuncStashless struct {
 	stackSize uint32
 	args      uint32
+}
+
+func (e *enterFuncStashless) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("enterFuncStashless %d %d", e.stackSize, e.args)
 }
 
 func (e *enterFuncStashless) exec(vm *vm) {
@@ -3693,6 +4329,10 @@ type newFunc struct {
 	strict bool
 }
 
+func (n *newFunc) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("newFunc %s %d %t", n.name, n.length, n.strict)
+}
+
 func (n *newFunc) exec(vm *vm) {
 	obj := vm.r.newFunc(n.name, n.length, n.strict)
 	obj.prg = n.prg
@@ -3711,6 +4351,10 @@ type newAsyncFunc struct {
 	newFunc
 }
 
+func (n *newAsyncFunc) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("newAsyncFunc %s %d %t", n.name, n.length, n.strict)
+}
+
 func (n *newAsyncFunc) exec(vm *vm) {
 	obj := vm.r.newAsyncFunc(n.name, n.length, n.strict)
 	obj.prg = n.prg
@@ -3723,6 +4367,10 @@ func (n *newAsyncFunc) exec(vm *vm) {
 
 type newGeneratorFunc struct {
 	newFunc
+}
+
+func (n *newGeneratorFunc) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("newGeneratorFunc %s %d %t", n.name, n.length, n.strict)
 }
 
 func (n *newGeneratorFunc) exec(vm *vm) {
@@ -3752,12 +4400,20 @@ func (n *newMethod) _exec(vm *vm, obj *methodFuncObject) {
 	vm.pc++
 }
 
+func (n *newMethod) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("newMethod %s %d %t", n.name, n.length, n.strict)
+}
+
 func (n *newMethod) exec(vm *vm) {
 	n._exec(vm, vm.r.newMethod(n.name, n.length, n.strict))
 }
 
 type newAsyncMethod struct {
 	newMethod
+}
+
+func (n *newAsyncMethod) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("newAsyncMethod %s %d %t", n.name, n.length, n.strict)
 }
 
 func (n *newAsyncMethod) exec(vm *vm) {
@@ -3767,6 +4423,10 @@ func (n *newAsyncMethod) exec(vm *vm) {
 
 type newGeneratorMethod struct {
 	newMethod
+}
+
+func (n *newGeneratorMethod) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("newGeneratorMethod %s %d %t", n.name, n.length, n.strict)
 }
 
 func (n *newGeneratorMethod) exec(vm *vm) {
@@ -3827,8 +4487,16 @@ func (n *newArrowFunc) _exec(vm *vm, obj *arrowFuncObject) {
 	vm.pc++
 }
 
+func (n *newArrowFunc) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("newArrowFunc %s %d %t", n.name, n.length, n.strict)
+}
+
 func (n *newArrowFunc) exec(vm *vm) {
 	n._exec(vm, vm.r.newArrowFunc(n.name, n.length, n.strict))
+}
+
+func (n *newAsyncArrowFunc) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("newAsyncArrowFunc %s %d %t", n.name, n.length, n.strict)
 }
 
 func (n *newAsyncArrowFunc) exec(vm *vm) {
@@ -3996,6 +4664,10 @@ type bindVars struct {
 	deletable bool
 }
 
+func (b *bindVars) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("bindVars %v %t", b.names, b.deletable)
+}
+
 func (d *bindVars) exec(vm *vm) {
 	var target *stash
 	for _, name := range d.names {
@@ -4026,6 +4698,10 @@ type bindGlobal struct {
 	deletable bool
 }
 
+func (b *bindGlobal) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("bindGlobal %v %v %v %v %t", b.vars, b.funcs, b.lets, b.consts, b.deletable)
+}
+
 func (b *bindGlobal) exec(vm *vm) {
 	vm.checkBindFuncsGlobal(b.funcs)
 	vm.checkBindLexGlobal(b.lets)
@@ -4046,6 +4722,10 @@ func (b *bindGlobal) exec(vm *vm) {
 
 type jne int32
 
+func (j jne) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("jne %d", j)
+}
+
 func (j jne) exec(vm *vm) {
 	vm.sp--
 	if !vm.stack[vm.sp].ToBoolean() {
@@ -4056,6 +4736,10 @@ func (j jne) exec(vm *vm) {
 }
 
 type jeq int32
+
+func (j jeq) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("jeq %d", j)
+}
 
 func (j jeq) exec(vm *vm) {
 	vm.sp--
@@ -4068,6 +4752,10 @@ func (j jeq) exec(vm *vm) {
 
 type jeq1 int32
 
+func (j jeq1) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("jeq1 %d", j)
+}
+
 func (j jeq1) exec(vm *vm) {
 	if vm.stack[vm.sp-1].ToBoolean() {
 		vm.pc += int(j)
@@ -4078,6 +4766,10 @@ func (j jeq1) exec(vm *vm) {
 }
 
 type jneq1 int32
+
+func (j jneq1) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("jneq1 %d", j)
+}
 
 func (j jneq1) exec(vm *vm) {
 	if !vm.stack[vm.sp-1].ToBoolean() {
@@ -4090,6 +4782,10 @@ func (j jneq1) exec(vm *vm) {
 
 type jdef int32
 
+func (j jdef) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("jdef %d", j)
+}
+
 func (j jdef) exec(vm *vm) {
 	if vm.stack[vm.sp-1] != _undefined {
 		vm.pc += int(j)
@@ -4101,6 +4797,10 @@ func (j jdef) exec(vm *vm) {
 
 type jdefP int32
 
+func (j jdefP) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("jdefP %d", j)
+}
+
 func (j jdefP) exec(vm *vm) {
 	if vm.stack[vm.sp-1] != _undefined {
 		vm.pc += int(j)
@@ -4111,6 +4811,10 @@ func (j jdefP) exec(vm *vm) {
 }
 
 type jopt int32
+
+func (j jopt) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("jopt %d", j)
+}
 
 func (j jopt) exec(vm *vm) {
 	switch vm.stack[vm.sp-1] {
@@ -4126,6 +4830,10 @@ func (j jopt) exec(vm *vm) {
 
 type joptc int32
 
+func (j joptc) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("joptc %d", j)
+}
+
 func (j joptc) exec(vm *vm) {
 	switch vm.stack[vm.sp-1].(type) {
 	case valueNull, valueUndefined, memberUnresolved:
@@ -4138,6 +4846,10 @@ func (j joptc) exec(vm *vm) {
 }
 
 type jcoalesc int32
+
+func (j jcoalesc) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("jcoalesc %d", j)
+}
 
 func (j jcoalesc) exec(vm *vm) {
 	switch vm.stack[vm.sp-1] {
@@ -4152,6 +4864,10 @@ func (j jcoalesc) exec(vm *vm) {
 type _not struct{}
 
 var not _not
+
+func (_not) dump(ctx *DumpContext) {
+	ctx.resultString += "not"
+}
 
 func (_not) exec(vm *vm) {
 	if vm.stack[vm.sp-1].ToBoolean() {
@@ -4215,6 +4931,10 @@ type _op_lt struct{}
 
 var op_lt _op_lt
 
+func (_op_lt) dump(ctx *DumpContext) {
+	ctx.resultString += "lt"
+}
+
 func (_op_lt) exec(vm *vm) {
 	left := toPrimitiveNumber(vm.stack[vm.sp-2])
 	right := toPrimitiveNumber(vm.stack[vm.sp-1])
@@ -4232,6 +4952,10 @@ func (_op_lt) exec(vm *vm) {
 type _op_lte struct{}
 
 var op_lte _op_lte
+
+func (_op_lte) dump(ctx *DumpContext) {
+	ctx.resultString += "lte"
+}
 
 func (_op_lte) exec(vm *vm) {
 	left := toPrimitiveNumber(vm.stack[vm.sp-2])
@@ -4252,6 +4976,10 @@ type _op_gt struct{}
 
 var op_gt _op_gt
 
+func (_op_gt) dump(ctx *DumpContext) {
+	ctx.resultString += "gt"
+}
+
 func (_op_gt) exec(vm *vm) {
 	left := toPrimitiveNumber(vm.stack[vm.sp-2])
 	right := toPrimitiveNumber(vm.stack[vm.sp-1])
@@ -4269,6 +4997,10 @@ func (_op_gt) exec(vm *vm) {
 type _op_gte struct{}
 
 var op_gte _op_gte
+
+func (_op_gte) dump(ctx *DumpContext) {
+	ctx.resultString += "gte"
+}
 
 func (_op_gte) exec(vm *vm) {
 	left := toPrimitiveNumber(vm.stack[vm.sp-2])
@@ -4289,6 +5021,10 @@ type _op_eq struct{}
 
 var op_eq _op_eq
 
+func (_op_eq) dump(ctx *DumpContext) {
+	ctx.resultString += "eq"
+}
+
 func (_op_eq) exec(vm *vm) {
 	if vm.stack[vm.sp-2].Equals(vm.stack[vm.sp-1]) {
 		vm.stack[vm.sp-2] = valueTrue
@@ -4302,6 +5038,10 @@ func (_op_eq) exec(vm *vm) {
 type _op_neq struct{}
 
 var op_neq _op_neq
+
+func (_op_neq) dump(ctx *DumpContext) {
+	ctx.resultString += "neq"
+}
 
 func (_op_neq) exec(vm *vm) {
 	if vm.stack[vm.sp-2].Equals(vm.stack[vm.sp-1]) {
@@ -4317,6 +5057,10 @@ type _op_strict_eq struct{}
 
 var op_strict_eq _op_strict_eq
 
+func (_op_strict_eq) dump(ctx *DumpContext) {
+	ctx.resultString += "strict_eq"
+}
+
 func (_op_strict_eq) exec(vm *vm) {
 	if vm.stack[vm.sp-2].StrictEquals(vm.stack[vm.sp-1]) {
 		vm.stack[vm.sp-2] = valueTrue
@@ -4331,6 +5075,10 @@ type _op_strict_neq struct{}
 
 var op_strict_neq _op_strict_neq
 
+func (_op_strict_neq) dump(ctx *DumpContext) {
+	ctx.resultString += "strict_neq"
+}
+
 func (_op_strict_neq) exec(vm *vm) {
 	if vm.stack[vm.sp-2].StrictEquals(vm.stack[vm.sp-1]) {
 		vm.stack[vm.sp-2] = valueFalse
@@ -4344,6 +5092,10 @@ func (_op_strict_neq) exec(vm *vm) {
 type _op_instanceof struct{}
 
 var op_instanceof _op_instanceof
+
+func (_op_instanceof) dump(ctx *DumpContext) {
+	ctx.resultString += "instanceof"
+}
 
 func (_op_instanceof) exec(vm *vm) {
 	left := vm.stack[vm.sp-2]
@@ -4362,6 +5114,10 @@ func (_op_instanceof) exec(vm *vm) {
 type _op_in struct{}
 
 var op_in _op_in
+
+func (_op_in) dump(ctx *DumpContext) {
+	ctx.resultString += "in"
+}
 
 func (_op_in) exec(vm *vm) {
 	left := vm.stack[vm.sp-2]
@@ -4382,6 +5138,10 @@ type try struct {
 	finallyOffset int32
 }
 
+func (t try) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("try %d %d", t.catchOffset, t.finallyOffset)
+}
+
 func (t try) exec(vm *vm) {
 	var catchPos, finallyPos int32
 	if t.catchOffset > 0 {
@@ -4400,6 +5160,10 @@ func (t try) exec(vm *vm) {
 
 type leaveTry struct{}
 
+func (leaveTry) dump(ctx *DumpContext) {
+	ctx.resultString += "leaveTry"
+}
+
 func (leaveTry) exec(vm *vm) {
 	tf := &vm.tryStack[len(vm.tryStack)-1]
 	if tf.finallyPos >= 0 {
@@ -4415,6 +5179,10 @@ func (leaveTry) exec(vm *vm) {
 
 type enterFinally struct{}
 
+func (enterFinally) dump(ctx *DumpContext) {
+	ctx.resultString += "enterFinally"
+}
+
 func (enterFinally) exec(vm *vm) {
 	tf := &vm.tryStack[len(vm.tryStack)-1]
 	tf.finallyPos = -1
@@ -4422,6 +5190,10 @@ func (enterFinally) exec(vm *vm) {
 }
 
 type leaveFinally struct{}
+
+func (leaveFinally) dump(ctx *DumpContext) {
+	ctx.resultString += "leaveFinally"
+}
 
 func (leaveFinally) exec(vm *vm) {
 	tf := &vm.tryStack[len(vm.tryStack)-1]
@@ -4443,6 +5215,10 @@ func (leaveFinally) exec(vm *vm) {
 type _throw struct{}
 
 var throw _throw
+
+func (_throw) dump(ctx *DumpContext) {
+	ctx.resultString += "throw"
+}
 
 func (_throw) exec(vm *vm) {
 	v := vm.stack[vm.sp-1]
@@ -4471,11 +5247,19 @@ type _newVariadic struct{}
 
 var newVariadic _newVariadic
 
+func (_newVariadic) dump(ctx *DumpContext) {
+	ctx.resultString += "newVariadic"
+}
+
 func (_newVariadic) exec(vm *vm) {
 	_new(vm.countVariadicArgs() - 1).exec(vm)
 }
 
 type _new uint32
+
+func (n _new) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("new %d", n)
+}
 
 func (n _new) exec(vm *vm) {
 	sp := vm.sp - int(n)
@@ -4487,6 +5271,10 @@ func (n _new) exec(vm *vm) {
 }
 
 type superCall uint32
+
+func (s superCall) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("superCall %d", s)
+}
 
 func (s superCall) exec(vm *vm) {
 	l := len(vm.refStack) - 1
@@ -4520,6 +5308,10 @@ type _superCallVariadic struct{}
 
 var superCallVariadic _superCallVariadic
 
+func (_superCallVariadic) dump(ctx *DumpContext) {
+	ctx.resultString += "superCallVariadic"
+}
+
 func (_superCallVariadic) exec(vm *vm) {
 	superCall(vm.countVariadicArgs()).exec(vm)
 }
@@ -4527,6 +5319,10 @@ func (_superCallVariadic) exec(vm *vm) {
 type _loadNewTarget struct{}
 
 var loadNewTarget _loadNewTarget
+
+func (_loadNewTarget) dump(ctx *DumpContext) {
+	ctx.resultString += "loadNewTarget"
+}
 
 func (_loadNewTarget) exec(vm *vm) {
 	if t := vm.newTarget; t != nil {
@@ -4540,6 +5336,10 @@ func (_loadNewTarget) exec(vm *vm) {
 type _typeof struct{}
 
 var typeof _typeof
+
+func (_typeof) dump(ctx *DumpContext) {
+	ctx.resultString += "typeof"
+}
 
 func (_typeof) exec(vm *vm) {
 	var r Value
@@ -4566,6 +5366,10 @@ func (_typeof) exec(vm *vm) {
 }
 
 type createArgsMapped uint32
+
+func (formalArgs createArgsMapped) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("createArgsMapped %d", formalArgs)
+}
 
 func (formalArgs createArgsMapped) exec(vm *vm) {
 	v := &Object{runtime: vm.r}
@@ -4606,6 +5410,10 @@ func (formalArgs createArgsMapped) exec(vm *vm) {
 
 type createArgsUnmapped uint32
 
+func (formalArgs createArgsUnmapped) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("createArgsUnmapped %d", formalArgs)
+}
+
 func (formalArgs createArgsUnmapped) exec(vm *vm) {
 	args := vm.r.newBaseObject(vm.r.global.ObjectPrototype, "Arguments")
 	i := 0
@@ -4634,6 +5442,10 @@ type _enterWith struct{}
 
 var enterWith _enterWith
 
+func (_enterWith) dump(ctx *DumpContext) {
+	ctx.resultString += "enterWith"
+}
+
 func (_enterWith) exec(vm *vm) {
 	vm.newStash()
 	vm.stash.obj = vm.stack[vm.sp-1].ToObject(vm.r)
@@ -4644,6 +5456,10 @@ func (_enterWith) exec(vm *vm) {
 type _leaveWith struct{}
 
 var leaveWith _leaveWith
+
+func (_leaveWith) dump(ctx *DumpContext) {
+	ctx.resultString += "leaveWith"
+}
 
 func (_leaveWith) exec(vm *vm) {
 	vm.stash = vm.stash.outer
@@ -4658,6 +5474,10 @@ type _enumerate struct{}
 
 var enumerate _enumerate
 
+func (_enumerate) dump(ctx *DumpContext) {
+	ctx.resultString += "enumerate"
+}
+
 func (_enumerate) exec(vm *vm) {
 	v := vm.stack[vm.sp-1]
 	if v == _undefined || v == _null {
@@ -4670,6 +5490,10 @@ func (_enumerate) exec(vm *vm) {
 }
 
 type enumNext int32
+
+func (jmp enumNext) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("enumNext %d", jmp)
+}
 
 func (jmp enumNext) exec(vm *vm) {
 	l := len(vm.iterStack) - 1
@@ -4687,6 +5511,10 @@ type _enumGet struct{}
 
 var enumGet _enumGet
 
+func (_enumGet) dump(ctx *DumpContext) {
+	ctx.resultString += "enumGet"
+}
+
 func (_enumGet) exec(vm *vm) {
 	l := len(vm.iterStack) - 1
 	vm.push(vm.iterStack[l].val)
@@ -4696,6 +5524,10 @@ func (_enumGet) exec(vm *vm) {
 type _enumPop struct{}
 
 var enumPop _enumPop
+
+func (_enumPop) dump(ctx *DumpContext) {
+	ctx.resultString += "enumPop"
+}
 
 func (_enumPop) exec(vm *vm) {
 	l := len(vm.iterStack) - 1
@@ -4707,6 +5539,10 @@ func (_enumPop) exec(vm *vm) {
 type _enumPopClose struct{}
 
 var enumPopClose _enumPopClose
+
+func (_enumPopClose) dump(ctx *DumpContext) {
+	ctx.resultString += "enumPopClose"
+}
 
 func (_enumPopClose) exec(vm *vm) {
 	l := len(vm.iterStack) - 1
@@ -4723,6 +5559,10 @@ type _iterateP struct{}
 
 var iterateP _iterateP
 
+func (_iterateP) dump(ctx *DumpContext) {
+	ctx.resultString += "iterateP"
+}
+
 func (_iterateP) exec(vm *vm) {
 	iter := vm.r.getIterator(vm.stack[vm.sp-1], nil)
 	vm.iterStack = append(vm.iterStack, iterStackItem{iter: iter})
@@ -4734,6 +5574,10 @@ type _iterate struct{}
 
 var iterate _iterate
 
+func (_iterate) dump(ctx *DumpContext) {
+	ctx.resultString += "iterate"
+}
+
 func (_iterate) exec(vm *vm) {
 	iter := vm.r.getIterator(vm.stack[vm.sp-1], nil)
 	vm.iterStack = append(vm.iterStack, iterStackItem{iter: iter})
@@ -4741,6 +5585,10 @@ func (_iterate) exec(vm *vm) {
 }
 
 type iterNext int32
+
+func (jmp iterNext) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("iterNext %d", jmp)
+}
 
 func (jmp iterNext) exec(vm *vm) {
 	l := len(vm.iterStack) - 1
@@ -4764,6 +5612,10 @@ func (jmp iterNext) exec(vm *vm) {
 
 type iterGetNextOrUndef struct{}
 
+func (iterGetNextOrUndef) dump(ctx *DumpContext) {
+	ctx.resultString += "iterGetNextOrUndef"
+}
+
 func (iterGetNextOrUndef) exec(vm *vm) {
 	l := len(vm.iterStack) - 1
 	iter := vm.iterStack[l].iter
@@ -4785,6 +5637,10 @@ func (iterGetNextOrUndef) exec(vm *vm) {
 
 type copyStash struct{}
 
+func (copyStash) dump(ctx *DumpContext) {
+	ctx.resultString += "copyStash"
+}
+
 func (copyStash) exec(vm *vm) {
 	oldStash := vm.stash
 	newStash := &stash{
@@ -4800,6 +5656,10 @@ func (copyStash) exec(vm *vm) {
 type _throwAssignToConst struct{}
 
 var throwAssignToConst _throwAssignToConst
+
+func (_throwAssignToConst) dump(ctx *DumpContext) {
+	ctx.resultString += "throwAssignToConst"
+}
 
 func (_throwAssignToConst) exec(vm *vm) {
 	vm.throw(errAssignToConst)
@@ -4820,6 +5680,10 @@ type _copySpread struct{}
 
 var copySpread _copySpread
 
+func (_copySpread) dump(ctx *DumpContext) {
+	ctx.resultString += "copySpread"
+}
+
 func (_copySpread) exec(vm *vm) {
 	vm.r.copyDataProperties(vm.stack[vm.sp-2], vm.stack[vm.sp-1])
 	vm.sp--
@@ -4830,6 +5694,10 @@ type _copyRest struct{}
 
 var copyRest _copyRest
 
+func (_copyRest) dump(ctx *DumpContext) {
+	ctx.resultString += "copyRest"
+}
+
 func (_copyRest) exec(vm *vm) {
 	vm.push(vm.r.NewObject())
 	vm.r.copyDataProperties(vm.stack[vm.sp-1], vm.stack[vm.sp-2])
@@ -4839,6 +5707,10 @@ func (_copyRest) exec(vm *vm) {
 type _createDestructSrc struct{}
 
 var createDestructSrc _createDestructSrc
+
+func (_createDestructSrc) dump(ctx *DumpContext) {
+	ctx.resultString += "createDestructSrc"
+}
 
 func (_createDestructSrc) exec(vm *vm) {
 	v := vm.stack[vm.sp-1]
@@ -4851,12 +5723,20 @@ type _checkObjectCoercible struct{}
 
 var checkObjectCoercible _checkObjectCoercible
 
+func (_checkObjectCoercible) dump(ctx *DumpContext) {
+	ctx.resultString += "checkObjectCoercible"
+}
+
 func (_checkObjectCoercible) exec(vm *vm) {
 	vm.r.checkObjectCoercible(vm.stack[vm.sp-1])
 	vm.pc++
 }
 
 type createArgsRestStack int
+
+func (n createArgsRestStack) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("createArgsRestStack %d", n)
+}
 
 func (n createArgsRestStack) exec(vm *vm) {
 	var values []Value
@@ -4873,6 +5753,10 @@ type _createArgsRestStash struct{}
 
 var createArgsRestStash _createArgsRestStash
 
+func (_createArgsRestStash) dump(ctx *DumpContext) {
+	ctx.resultString += "createArgsRestStash"
+}
+
 func (_createArgsRestStash) exec(vm *vm) {
 	vm.push(vm.r.newArrayValues(vm.stash.extraArgs))
 	vm.stash.extraArgs = nil
@@ -4880,6 +5764,10 @@ func (_createArgsRestStash) exec(vm *vm) {
 }
 
 type concatStrings int
+
+func (n concatStrings) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("concatStrings %d", n)
+}
 
 func (n concatStrings) exec(vm *vm) {
 	strs := vm.stack[vm.sp-int(n) : vm.sp]
@@ -4945,6 +5833,10 @@ func (a *taggedTemplateArray) equal(other objectImpl) bool {
 	return false
 }
 
+func (c *getTaggedTmplObject) dump(ctx *DumpContext) {
+	ctx.resultString += "getTaggedTmplObject"
+}
+
 func (c *getTaggedTmplObject) exec(vm *vm) {
 	cooked := vm.r.newArrayObject()
 	setArrayValues(cooked, c.cooked)
@@ -4977,6 +5869,10 @@ func (c *getTaggedTmplObject) exec(vm *vm) {
 type _loadSuper struct{}
 
 var loadSuper _loadSuper
+
+func (_loadSuper) dump(ctx *DumpContext) {
+	ctx.resultString += "loadSuper"
+}
 
 func (_loadSuper) exec(vm *vm) {
 	homeObject := getHomeObject(vm.stack[vm.sb-1])
@@ -5057,6 +5953,10 @@ func (c *newClass) create(protoParent, ctorParent *Object, vm *vm, derived bool)
 	return proto.val, f.val
 }
 
+func (c *newClass) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("newClass %s %d %d %t %d %d %t\n", c.name, c.length, c.hasPrivateEnv, c.numPrivateFields, c.numPrivateMethods, c.initFields != nil)
+}
+
 func (c *newClass) exec(vm *vm) {
 	proto, cls := c.create(vm.r.global.ObjectPrototype, vm.r.getFunctionPrototype(), vm, false)
 	sp := vm.sp
@@ -5065,6 +5965,10 @@ func (c *newClass) exec(vm *vm) {
 	vm.stack[sp+1] = cls
 	vm.sp = sp + 2
 	vm.pc++
+}
+
+func (c *newDerivedClass) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("newDerivedClass %s %d %d %t %d %d %t\n", c.name, c.length, c.hasPrivateEnv, c.numPrivateFields, c.numPrivateMethods, c.initFields != nil)
 }
 
 func (c *newDerivedClass) exec(vm *vm) {
@@ -5103,6 +6007,10 @@ type newStaticFieldInit struct {
 	numPrivateFields, numPrivateMethods uint32
 }
 
+func (c *newStaticFieldInit) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("newStaticFieldInit %d %d\n", c.numPrivateFields, c.numPrivateMethods)
+}
+
 func (c *newStaticFieldInit) exec(vm *vm) {
 	f := vm.r.newClassFunc("", 0, vm.r.getFunctionPrototype(), false)
 	if c.numPrivateFields > 0 || c.numPrivateMethods > 0 {
@@ -5126,11 +6034,19 @@ func (vm *vm) loadThis(v Value) {
 
 type loadThisStash uint32
 
+func (l loadThisStash) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("loadThisStash %d\n", l)
+}
+
 func (l loadThisStash) exec(vm *vm) {
 	vm.loadThis(*vm.getStashPtr(uint32(l)))
 }
 
 type loadThisStack struct{}
+
+func (loadThisStack) dump(ctx *DumpContext) {
+	ctx.resultString += "loadThisStack"
+}
 
 func (loadThisStack) exec(vm *vm) {
 	vm.loadThis(vm.stack[vm.sb])
@@ -5148,6 +6064,10 @@ func (vm *vm) getStashPtr(s uint32) *Value {
 }
 
 type getThisDynamic struct{}
+
+func (getThisDynamic) dump(ctx *DumpContext) {
+	ctx.resultString += "getThisDynamic"
+}
 
 func (getThisDynamic) exec(vm *vm) {
 	for stash := vm.stash; stash != nil; stash = stash.outer {
@@ -5167,11 +6087,19 @@ type throwConst struct {
 	v interface{}
 }
 
+func (t throwConst) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("throwConst %v", t.v)
+}
+
 func (t throwConst) exec(vm *vm) {
 	vm.throw(t.v)
 }
 
 type resolveThisStack struct{}
+
+func (resolveThisStack) dump(ctx *DumpContext) {
+	ctx.resultString += "resolveThisStack"
+}
 
 func (r resolveThisStack) exec(vm *vm) {
 	vm.refStack = append(vm.refStack, &thisRef{v: (*[]Value)(&vm.stack), idx: vm.sb})
@@ -5179,6 +6107,10 @@ func (r resolveThisStack) exec(vm *vm) {
 }
 
 type resolveThisStash uint32
+
+func (r resolveThisStash) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("resolveThisStash %d\n", r)
+}
 
 func (r resolveThisStash) exec(vm *vm) {
 	level := int(r) >> 24
@@ -5192,6 +6124,10 @@ func (r resolveThisStash) exec(vm *vm) {
 }
 
 type resolveThisDynamic struct{}
+
+func (resolveThisDynamic) dump(ctx *DumpContext) {
+	ctx.resultString += "resolveThisDynamic"
+}
 
 func (resolveThisDynamic) exec(vm *vm) {
 	for stash := vm.stash; stash != nil; stash = stash.outer {
@@ -5208,6 +6144,10 @@ func (resolveThisDynamic) exec(vm *vm) {
 
 type defineComputedKey int
 
+func (offset defineComputedKey) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("defineComputedKey %d\n", offset)
+}
+
 func (offset defineComputedKey) exec(vm *vm) {
 	obj := vm.r.toObject(vm.stack[vm.sp-int(offset)])
 	if h, ok := obj.self.(*classFuncObject); ok {
@@ -5222,6 +6162,10 @@ func (offset defineComputedKey) exec(vm *vm) {
 
 type loadComputedKey int
 
+func (idx loadComputedKey) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("loadComputedKey %d\n", idx)
+}
+
 func (idx loadComputedKey) exec(vm *vm) {
 	obj := vm.r.toObject(vm.stack[vm.sb-1])
 	if h, ok := obj.self.(*classFuncObject); ok {
@@ -5234,6 +6178,10 @@ func (idx loadComputedKey) exec(vm *vm) {
 
 type initStaticElements struct {
 	privateFields, privateMethods []unistring.String
+}
+
+func (i *initStaticElements) dump(ctx *DumpContext) {
+	ctx.resultString += "initStaticElements\n"
 }
 
 func (i *initStaticElements) exec(vm *vm) {
@@ -5270,6 +6218,10 @@ func (d *definePrivateMethod) getPrivateMethods(vm *vm) []Value {
 	}
 }
 
+func (d *definePrivateMethod) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("definePrivateMethod %d %d\n", d.idx, d.targetOffset)
+}
+
 func (d *definePrivateMethod) exec(vm *vm) {
 	methods := d.getPrivateMethods(vm)
 	methods[d.idx] = vm.stack[vm.sp-1]
@@ -5279,6 +6231,10 @@ func (d *definePrivateMethod) exec(vm *vm) {
 
 type definePrivateGetter struct {
 	definePrivateMethod
+}
+
+func (d *definePrivateGetter) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("definePrivateGetter %d %d\n", d.idx, d.targetOffset)
 }
 
 func (d *definePrivateGetter) exec(vm *vm) {
@@ -5305,6 +6261,10 @@ type definePrivateSetter struct {
 	definePrivateMethod
 }
 
+func (d *definePrivateSetter) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("definePrivateSetter %d %d\n", d.idx, d.targetOffset)
+}
+
 func (d *definePrivateSetter) exec(vm *vm) {
 	methods := d.getPrivateMethods(vm)
 	val := vm.stack[vm.sp-1]
@@ -5327,6 +6287,10 @@ func (d *definePrivateSetter) exec(vm *vm) {
 
 type definePrivateProp struct {
 	idx int
+}
+
+func (d *definePrivateProp) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("definePrivateProp %d\n", d.idx)
 }
 
 func (d *definePrivateProp) exec(vm *vm) {
@@ -5355,6 +6319,10 @@ func (g *getPrivatePropRes) _get(base Value, vm *vm) Value {
 	return vm.getPrivateProp(base, g.name, vm.getPrivateType(g.level, g.isStatic), g.idx, g.isMethod)
 }
 
+func (g *getPrivatePropRes) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("getPrivatePropRes %s %d %t\n", g.name, g.level, g.isStatic)
+}
+
 func (g *getPrivatePropRes) exec(vm *vm) {
 	vm.stack[vm.sp-1] = g._get(vm.stack[vm.sp-1], vm)
 	vm.pc++
@@ -5362,12 +6330,20 @@ func (g *getPrivatePropRes) exec(vm *vm) {
 
 type getPrivatePropId privateId
 
+func (g *getPrivatePropId) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("getPrivatePropId %s %t\n", g.name, g.isMethod)
+}
+
 func (g *getPrivatePropId) exec(vm *vm) {
 	vm.stack[vm.sp-1] = vm.getPrivateProp(vm.stack[vm.sp-1], g.name, g.typ, g.idx, g.isMethod)
 	vm.pc++
 }
 
 type getPrivatePropIdCallee privateId
+
+func (g *getPrivatePropIdCallee) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("getPrivatePropIdCallee %s %t\n", g.name, g.isMethod)
+}
 
 func (g *getPrivatePropIdCallee) exec(vm *vm) {
 	prop := vm.getPrivateProp(vm.stack[vm.sp-1], g.name, g.typ, g.idx, g.isMethod)
@@ -5405,6 +6381,10 @@ func (vm *vm) getPrivateProp(base Value, name unistring.String, typ *privateEnvT
 }
 
 type getPrivatePropResCallee getPrivatePropRes
+
+func (g *getPrivatePropResCallee) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("getPrivatePropResCallee %s %d %t\n", g.name, g.level, g.isStatic)
+}
 
 func (g *getPrivatePropResCallee) exec(vm *vm) {
 	prop := (*getPrivatePropRes)(g)._get(vm.stack[vm.sp-1], vm)
@@ -5497,6 +6477,10 @@ func (p *setPrivatePropRes) _set(base Value, val Value, vm *vm) {
 	vm.setPrivateProp(base, p.name, vm.getPrivateType(p.level, p.isStatic), p.idx, p.isMethod, val)
 }
 
+func (p *setPrivatePropRes) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("setPrivatePropRes %s %d %t\n", p.name, p.level, p.isStatic)
+}
+
 func (p *setPrivatePropRes) exec(vm *vm) {
 	v := vm.stack[vm.sp-1]
 	p._set(vm.stack[vm.sp-2], v, vm)
@@ -5507,6 +6491,10 @@ func (p *setPrivatePropRes) exec(vm *vm) {
 
 type setPrivatePropResP setPrivatePropRes
 
+func (p *setPrivatePropResP) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("setPrivatePropResP %s %d %t\n", p.name, p.level, p.isStatic)
+}
+
 func (p *setPrivatePropResP) exec(vm *vm) {
 	v := vm.stack[vm.sp-1]
 	(*setPrivatePropRes)(p)._set(vm.stack[vm.sp-2], v, vm)
@@ -5515,6 +6503,10 @@ func (p *setPrivatePropResP) exec(vm *vm) {
 }
 
 type setPrivatePropId privateId
+
+func (p *setPrivatePropId) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("setPrivatePropId %s %t\n", p.name, p.isMethod)
+}
 
 func (p *setPrivatePropId) exec(vm *vm) {
 	v := vm.stack[vm.sp-1]
@@ -5526,6 +6518,10 @@ func (p *setPrivatePropId) exec(vm *vm) {
 
 type setPrivatePropIdP privateId
 
+func (p *setPrivatePropIdP) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("setPrivatePropIdP %s %t\n", p.name, p.isMethod)
+}
+
 func (p *setPrivatePropIdP) exec(vm *vm) {
 	v := vm.stack[vm.sp-1]
 	vm.setPrivateProp(vm.stack[vm.sp-2], p.name, p.typ, p.idx, p.isMethod, v)
@@ -5535,12 +6531,20 @@ func (p *setPrivatePropIdP) exec(vm *vm) {
 
 type popPrivateEnv struct{}
 
+func (popPrivateEnv) dump(ctx *DumpContext) {
+	ctx.resultString += "popPrivateEnv"
+}
+
 func (popPrivateEnv) exec(vm *vm) {
 	vm.privEnv = vm.privEnv.outer
 	vm.pc++
 }
 
 type privateInRes resolvedPrivateName
+
+func (i *privateInRes) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("privateInRes %s %d %t\n", i.name, i.level, i.isStatic)
+}
 
 func (i *privateInRes) exec(vm *vm) {
 	obj := vm.r.toObject(vm.stack[vm.sp-1])
@@ -5555,6 +6559,10 @@ func (i *privateInRes) exec(vm *vm) {
 
 type privateInId privateId
 
+func (i *privateInId) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("privateInId %s %t\n", i.name, i.isMethod)
+}
+
 func (i *privateInId) exec(vm *vm) {
 	obj := vm.r.toObject(vm.stack[vm.sp-1])
 	pe := obj.self.getPrivateEnv(i.typ, false)
@@ -5568,6 +6576,10 @@ func (i *privateInId) exec(vm *vm) {
 
 type getPrivateRefRes resolvedPrivateName
 
+func (r *getPrivateRefRes) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("getPrivateRefRes %s %d %t\n", r.name, r.level, r.isStatic)
+}
+
 func (r *getPrivateRefRes) exec(vm *vm) {
 	vm.refStack = append(vm.refStack, &privateRefRes{
 		base: vm.stack[vm.sp-1].ToObject(vm.r),
@@ -5579,6 +6591,10 @@ func (r *getPrivateRefRes) exec(vm *vm) {
 
 type getPrivateRefId privateId
 
+func (r *getPrivateRefId) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("getPrivateRefId %s %t\n", r.name, r.isMethod)
+}
+
 func (r *getPrivateRefId) exec(vm *vm) {
 	vm.refStack = append(vm.refStack, &privateRefId{
 		base: vm.stack[vm.sp-1].ToObject(vm.r),
@@ -5586,6 +6602,10 @@ func (r *getPrivateRefId) exec(vm *vm) {
 	})
 	vm.sp--
 	vm.pc++
+}
+
+func (y *yieldMarker) dump(ctx *DumpContext) {
+	ctx.resultString += fmt.Sprintf("yieldMarker %s\n", y)
 }
 
 func (y *yieldMarker) exec(vm *vm) {
